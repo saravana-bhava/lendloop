@@ -1,0 +1,140 @@
+{
+  "name": "LendLoop - Daily Overdue Reminders & Idempotent Writeback",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      },
+      "id": "1",
+      "name": "Daily 9 AM Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.NEXT_PUBLIC_CONVEX_URL }}/api/loans/overdue",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "2",
+      "name": "Fetch Overdue Loans",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "overdue",
+        "options": {}
+      },
+      "id": "3",
+      "name": "Split Overdue Loans",
+      "type": "n8n-nodes-base.itemLists",
+      "typeVersion": 3,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst secret = $env.N8N_WEBHOOK_SECRET || 'replace-with-a-high-entropy-64-character-hex-secret';\n\nconst item = $input.first().json;\nconst today = new Date().toISOString().split('T')[0];\n\n// Deterministic Idempotent Key: reminder_{date}_{requestId}\nconst idempotentKey = `reminder_${today}_${item.requestId}`;\n\nconst payload = {\n  requestId: item.requestId,\n  idempotentKey: idempotentKey,\n  toolName: item.toolName,\n  borrowerId: item.borrowerId,\n  borrowerName: item.borrowerName,\n  endDate: item.endDate,\n  timestamp: Date.now()\n};\n\nconst rawPayload = JSON.stringify(payload);\nconst signature = crypto.createHmac('sha256', secret).update(rawPayload).digest('hex');\n\nreturn [{\n  json: {\n    ...payload,\n    signature: signature,\n    rawPayload: rawPayload\n  }\n}];"
+      },
+      "id": "4",
+      "name": "Sign Payload & Idempotency Key",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NEXT_PUBLIC_CONVEX_URL }}/api/loans/reminder-sent",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-LendLoop-Signature",
+              "value": "={{ $json.signature }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.rawPayload }}",
+        "options": {
+          "retry": {
+            "retry": {
+              "maxTries": 3,
+              "waitBetween": 1000
+            }
+          }
+        }
+      },
+      "id": "5",
+      "name": "Writeback to Convex",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Daily 9 AM Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Overdue Loans",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Overdue Loans": {
+      "main": [
+        [
+          {
+            "node": "Split Overdue Loans",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Overdue Loans": {
+      "main": [
+        [
+          {
+            "node": "Sign Payload & Idempotency Key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign Payload & Idempotency Key": {
+      "main": [
+        [
+          {
+            "node": "Writeback to Convex",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

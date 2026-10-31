@@ -1,0 +1,138 @@
+{
+  "name": "LendLoop - Request & Status Notifications",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "borrow-request",
+        "options": {}
+      },
+      "id": "1",
+      "name": "Convex Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "lendloop-borrow-request"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst secret = $env.N8N_WEBHOOK_SECRET || 'replace-with-a-high-entropy-64-character-hex-secret';\n\nconst headers = $input.first().json.headers;\nconst body = $input.first().json.body;\n\nconst rawSignature = headers['x-lendloop-signature'] || headers['X-LendLoop-Signature'];\nif (!rawSignature) {\n  throw new Error('Missing X-LendLoop-Signature header');\n}\n\nconst expectedSig = crypto.createHmac('sha256', secret).update(JSON.stringify(body)).digest('hex');\n\nconst sigBuf = Buffer.from(rawSignature.replace('sha256=', ''), 'hex');\nconst expBuf = Buffer.from(expectedSig, 'hex');\n\nif (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {\n  throw new Error('HMAC signature verification failed');\n}\n\nreturn [{\n  json: {\n    verified: true,\n    event: body.eventType,\n    requestId: body.requestId,\n    toolName: body.toolName,\n    ownerId: body.ownerId,\n    borrowerId: body.borrowerId,\n    startDate: body.startDate,\n    endDate: body.endDate,\n    timestamp: body.timestamp\n  }\n}];"
+      },
+      "id": "2",
+      "name": "Verify HMAC & Sanitize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.event }}",
+              "value2": "request_created"
+            }
+          ]
+        }
+      },
+      "id": "3",
+      "name": "Check Event Type",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "values": {
+          "string": [
+            {
+              "name": "notificationType",
+              "value": "Borrower Request Created"
+            },
+            {
+              "name": "subject",
+              "value": "=New borrow request for {{ $json.toolName }}"
+            },
+            {
+              "name": "message",
+              "value": "=A neighbor requested to borrow {{ $json.toolName }} from {{ $json.startDate }} to {{ $json.endDate }}."
+            }
+          ]
+        }
+      },
+      "id": "4",
+      "name": "Format Owner Notification",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.2,
+      "position": [920, 240]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "values": {
+          "string": [
+            {
+              "name": "notificationType",
+              "value": "Status Change Notification"
+            },
+            {
+              "name": "message",
+              "value": "=Your borrow request status for {{ $json.toolName }} has been updated."
+            }
+          ]
+        }
+      },
+      "id": "5",
+      "name": "Format Status Notification",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.2,
+      "position": [920, 380]
+    }
+  ],
+  "connections": {
+    "Convex Webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify HMAC & Sanitize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify HMAC & Sanitize": {
+      "main": [
+        [
+          {
+            "node": "Check Event Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Event Type": {
+      "main": [
+        [
+          {
+            "node": "Format Owner Notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Status Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

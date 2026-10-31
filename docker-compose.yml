@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: lendloop-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - NODE_ENV=production
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=UTC
+      - N8N_DEFAULT_BINARY_DATA_MODE=default
+      # Security & Execution Controls
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+      - N8N_METRICS=true
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=168 # Prune logs after 7 days
+      - EXECUTIONS_DATA_PRUNE_MAX_COUNT=50000
+      # Shared Secrets & Credentials passed from .env
+      - N8N_WEBHOOK_SECRET=${N8N_WEBHOOK_SECRET:-replace-with-a-high-entropy-64-character-hex-secret}
+      - CONVEX_INTERNAL_API_SECRET=${CONVEX_INTERNAL_API_SECRET:-replace-with-a-secure-internal-api-secret}
+      - NEXT_PUBLIC_CONVEX_URL=${NEXT_PUBLIC_CONVEX_URL:-https://your-convex-deployment.convex.cloud}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/workflows:ro
+
+volumes:
+  n8n_data:
+    driver: local
